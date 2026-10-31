@@ -27,19 +27,18 @@ jobs:
 
       - name: 3. Iniciar OmniCloak com depurador ativo
         run: |
-          echo "Iniciando OmniCloak no macOS com porta de automação..."
+          echo "Iniciando OmniCloak no macOS..."
           ./OmniCloak.app/Contents/MacOS/OmniCloak --remote-debugging-port=9222 > omnicloak.log 2>&1 &
           APP_PID=$!
           echo "Processo rodando com PID $APP_PID"
           sleep 4
 
-      - name: 4. Executar os 4 Perfis em Sequência (35s cada)
+      - name: 4. Autenticar e Iniciar Perfil MENTHORQ
         run: |
           npm install ws
           node << 'EOF'
           const http = require('http');
           const WebSocket = require('ws');
-          const { execSync } = require('child_process');
 
           async function run() {
             let target = null;
@@ -86,53 +85,43 @@ jobs:
               document.querySelector('#loginForm').requestSubmit();
             `);
 
-            console.log("2. Aguardando lista de perfis carregar da VPS (7s)...");
+            console.log("2. Aguardando 7s para carregar a tabela...");
             await new Promise(r => setTimeout(r, 7000));
 
-            const perfis = [
-              { nome: "1_FINANCIAL_JUICE", idx: 0 },
-              { nome: "2_MENTHORQ", idx: 1 },
-              { nome: "3_QUANTDATA", idx: 2 },
-              { nome: "4_SPOTGAMMA", idx: 3 }
-            ];
+            console.log("3. Disparando Perfil MENTHORQ (Linha 2 / Índice 1)...");
+            await exec(`
+              const btns = document.querySelectorAll('.btn-launch');
+              if (btns && btns[1]) {
+                btns[1].click();
+              }
+            `);
 
-            for (const p of perfis) {
-              console.log(`\n======================================================`);
-              console.log(`▶ DISPARANDO: ${p.nome} (botão ${p.idx + 1})`);
-              console.log(`======================================================`);
-
-              await exec(`
-                const btns = document.querySelectorAll('.btn-launch');
-                if (btns && btns[${p.idx}]) {
-                  btns[${p.idx}].click();
-                }
-              `);
-
-              console.log(`- Aguardando 35 segundos para cookies e site carregarem no Chrome...`);
-              await new Promise(r => setTimeout(r, 35000));
-
-              console.log(`- Tirando screenshot: ${p.nome}.png`);
-              execSync(`screencapture -x "${p.nome}.png"`);
-
-              console.log(`- Fechando Google Chrome...`);
-              try { execSync(`killall "Google Chrome" 2>/dev/null || true`); } catch(e) {}
-
-              console.log(`- Aguardando 6 segundos para estabilizar...`);
-              await new Promise(r => setTimeout(r, 6000));
-            }
+            console.log("4. Aguardando 35 segundos para Chrome abrir, injetar cookies e renderizar MenthorQ no Mac...");
+            await new Promise(r => setTimeout(r, 35000));
 
             ws.close();
-            console.log("\n🎉 Bateria dos 4 perfis finalizada com sucesso!");
+            console.log("Automação do MenthorQ finalizada!");
           }
 
           run().catch(err => { console.error("Erro na automação:", err); process.exit(1); });
           EOF
 
-      - name: 5. Salvar Screenshots dos 4 Perfis
+      - name: 5. Capturar Tela do MenthorQ
+        run: |
+          echo "Status dos processos:"
+          ps aux | grep -iE "Chrome|OmniCloak" || true
+
+          echo "Tirando screenshot..."
+          screencapture -x screenshot_mac_menthorq.png
+
+          echo "Logs do OmniCloak:"
+          cat omnicloak.log || true
+
+      - name: 6. Salvar Artefatos
         uses: actions/upload-artifact@v4
         with:
-          name: screenshots-4-perfis-mac
+          name: resultado-menthorq-mac
           path: |
-            *.png
+            screenshot_mac_menthorq.png
             omnicloak.log
           retention-days: 1
