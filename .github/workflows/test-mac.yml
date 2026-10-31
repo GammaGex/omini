@@ -18,48 +18,108 @@ jobs:
 
       - name: 2. Restaurar permissões Unix e assinar para Apple Silicon
         run: |
-          # 1. Restaura permissão de execução (+x) que o Windows removeu ao zipar
           chmod -R +x OmniCloak.app
-
-          # 2. Remove quarentena
           xattr -cr OmniCloak.app
-
-          # 3. Remove default_app.asar legada se existir
           rm -f "OmniCloak.app/Contents/Resources/default_app.asar"
-
-          # 4. Remove trava ElectronAsarIntegrity do Info.plist se existir
           /usr/libexec/PlistBuddy -c "Delete :ElectronAsarIntegrity" "OmniCloak.app/Contents/Info.plist" 2>/dev/null || true
-
-          # 5. Assina o pacote localmente para Apple Silicon (ad-hoc)
           codesign --force --deep --sign - "OmniCloak.app"
-          echo "✅ Pacote restaurado e assinado com sucesso para Apple Silicon!"
+          echo "✅ Pacote pronto para execução no Mac."
 
-      - name: 3. Executar OmniCloak com captura de logs
+      - name: 3. Iniciar OmniCloak com depurador ativo
         run: |
-          echo "Iniciando OmniCloak no macOS..."
-          
-          # Inicia capturando saída de erros e terminal
-          ./OmniCloak.app/Contents/MacOS/OmniCloak > omnicloak.log 2>&1 &
+          echo "Iniciando OmniCloak no macOS com porta de automação..."
+          ./OmniCloak.app/Contents/MacOS/OmniCloak --remote-debugging-port=9222 > omnicloak.log 2>&1 &
           APP_PID=$!
-          echo "Processo iniciado com PID: $APP_PID"
+          echo "Processo rodando com PID $APP_PID"
+          sleep 4
 
-          # Aguarda 12 segundos para a janela renderizar
-          sleep 12
+      - name: 4. Autenticar, Listar Perfis e Clicar em Iniciar
+        run: |
+          npm install ws
+          node << 'EOF'
+          const http = require('http');
+          const WebSocket = require('ws');
 
-          echo "Status dos processos do OmniCloak:"
-          ps aux | grep OmniCloak || true
+          async function run() {
+            let target = null;
+            for (let i = 0; i < 20; i++) {
+              await new Promise(r => setTimeout(r, 500));
+              try {
+                const res = await new Promise((resolve, reject) => {
+                  http.get('http://127.0.0.1:9222/json', (res) => {
+                    let d = '';
+                    res.on('data', c => d += c);
+                    res.on('end', () => resolve(JSON.parse(d)));
+                  }).on('error', reject);
+                });
+                target = res.find(t => t.type === 'page');
+                if (target && target.webSocketDebuggerUrl) break;
+              } catch(e) {}
+            }
 
-          echo "Últimos logs do aplicativo:"
-          cat omnicloak.log || true
+            if (!target) throw new Error("Janela do OmniCloak não encontrada na porta 9222");
+            console.log("Conectado à interface do OmniCloak!");
+
+            const ws = new WebSocket(target.webSocketDebuggerUrl);
+            await new Promise(r => ws.on('open', r));
+
+            function exec(code) {
+              return new Promise(resolve => {
+                const id = Math.floor(Math.random() * 100000);
+                const onMsg = (data) => {
+                  const m = JSON.parse(data);
+                  if (m.id === id) {
+                    ws.off('message', onMsg);
+                    resolve(m.result ? m.result.value : null);
+                  }
+                };
+                ws.on('message', onMsg);
+                ws.send(JSON.stringify({ id, method: "Runtime.evaluate", params: { expression: code, returnByValue: true } }));
+              });
+            }
+
+            console.log("1. Submetendo login (teste2910029200)...");
+            await exec(`
+              document.querySelector('#username').value = 'teste2910029200';
+              document.querySelector('#password').value = 'jVz8boBk';
+              document.querySelector('#loginForm').requestSubmit();
+            `);
+
+            console.log("2. Aguardando perfis carregarem da Nuvem...");
+            await new Promise(r => setTimeout(r, 6000));
+
+            const buttonsCount = await exec(`document.querySelectorAll('.btn-launch').length`);
+            console.log(`Perfis encontrados na tabela: ${buttonsCount}`);
+
+            console.log("3. Clicando em 'Iniciar' no primeiro perfil...");
+            await exec(`document.querySelector('.btn-launch').click();`);
+
+            console.log("4. Aguardando 12s para o Google Chrome abrir e navegar...");
+            await new Promise(r => setTimeout(r, 12000));
+
+            ws.close();
+            console.log("Automação finalizada!");
+          }
+
+          run().catch(err => { console.error("Erro na automação:", err); process.exit(1); });
+          EOF
+
+      - name: 5. Capturar Tela com Perfil em Execução
+        run: |
+          echo "Status dos processos do Google Chrome e OmniCloak:"
+          ps aux | grep -iE "Chrome|OmniCloak" || true
 
           echo "Tirando screenshot da tela..."
-          screencapture -x screenshot_mac.png
+          screencapture -x screenshot_mac_perfil.png
 
-      - name: 4. Salvar Relatório e Print (Artifacts)
+          echo "Logs do OmniCloak:"
+          cat omnicloak.log || true
+
+      - name: 6. Salvar Artefatos
         uses: actions/upload-artifact@v4
         with:
-          name: resultado-teste-mac
+          name: perfil-aberto-mac
           path: |
-            screenshot_mac.png
+            screenshot_mac_perfil.png
             omnicloak.log
           retention-days: 1
