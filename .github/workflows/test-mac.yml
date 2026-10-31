@@ -33,7 +33,7 @@ jobs:
           echo "Processo rodando com PID $APP_PID"
           sleep 4
 
-      - name: 4. Bateria Completa com Espera Estendida (35s por Perfil)
+      - name: 4. Executar os 4 Perfis em Sequência (35s cada)
         run: |
           npm install ws
           node << 'EOF'
@@ -71,12 +71,11 @@ jobs:
                   const m = JSON.parse(data);
                   if (m.id === id) {
                     ws.off('message', onMsg);
-                    const val = (m.result && m.result.result) ? m.result.result.value : (m.result ? m.result.value : null);
-                    resolve(val);
+                    resolve(m.result ? m.result.value : null);
                   }
                 };
                 ws.on('message', onMsg);
-                ws.send(JSON.stringify({ id, method: "Runtime.evaluate", params: { expression: code, returnByValue: true } }));
+                ws.send(JSON.stringify({ id, method: "Runtime.evaluate", params: { expression: code } }));
               });
             }
 
@@ -87,63 +86,52 @@ jobs:
               document.querySelector('#loginForm').requestSubmit();
             `);
 
-            console.log("2. Aguardando 7s para carregar a tabela de perfis da VPS...");
+            console.log("2. Aguardando lista de perfis carregar da VPS (7s)...");
             await new Promise(r => setTimeout(r, 7000));
 
-            // Executa os 4 perfis em sequência
-            const perfis = [0, 1, 2, 3];
-            for (const idx of perfis) {
-              const profName = await exec(`
-                const rows = document.querySelectorAll('#profilesTableBody tr');
-                rows[${idx}] ? rows[${idx}].querySelector('.profile-name').innerText.trim() : 'Perfil_${idx+1}'
-              `) || `Perfil_${idx+1}`;
+            const perfis = [
+              { nome: "1_FINANCIAL_JUICE", idx: 0 },
+              { nome: "2_MENTHORQ", idx: 1 },
+              { nome: "3_QUANTDATA", idx: 2 },
+              { nome: "4_SPOTGAMMA", idx: 3 }
+            ];
 
-              const safeName = profName.replace(/[^a-zA-Z0-9_]/g, '_');
-
+            for (const p of perfis) {
               console.log(`\n======================================================`);
-              console.log(`▶ [${idx+1}/4] INICIANDO: ${profName}`);
+              console.log(`▶ DISPARANDO: ${p.nome} (botão ${p.idx + 1})`);
               console.log(`======================================================`);
 
-              console.log(`- Clicando no botão Iniciar da linha ${idx+1}...`);
               await exec(`
-                const rows = document.querySelectorAll('#profilesTableBody tr');
-                if (rows && rows[${idx}]) {
-                  const btn = rows[${idx}].querySelector('.btn-launch');
-                  if (btn) btn.click();
+                const btns = document.querySelectorAll('.btn-launch');
+                if (btns && btns[${p.idx}]) {
+                  btns[${p.idx}].click();
                 }
               `);
 
-              console.log(`- Aguardando 35 segundos para cookies, túnel e gráficos carregarem...`);
+              console.log(`- Aguardando 35 segundos para cookies e site carregarem no Chrome...`);
               await new Promise(r => setTimeout(r, 35000));
 
-              console.log(`- Tirando screenshot: perfil_${idx+1}_${safeName}.png`);
-              execSync(`screencapture -x "perfil_${idx+1}_${safeName}.png"`);
+              console.log(`- Tirando screenshot: ${p.nome}.png`);
+              execSync(`screencapture -x "${p.nome}.png"`);
 
-              console.log(`- Fechando navegador do perfil...`);
-              await exec(`
-                const rows = document.querySelectorAll('#profilesTableBody tr');
-                if (rows && rows[${idx}]) {
-                  const stop = rows[${idx}].querySelector('.btn-stop');
-                  if (stop) stop.click();
-                }
-              `);
+              console.log(`- Fechando Google Chrome...`);
               try { execSync(`killall "Google Chrome" 2>/dev/null || true`); } catch(e) {}
 
-              console.log(`- Aguardando 6 segundos antes de abrir o próximo...`);
+              console.log(`- Aguardando 6 segundos para estabilizar...`);
               await new Promise(r => setTimeout(r, 6000));
             }
 
             ws.close();
-            console.log("\n🎉 Bateria de testes nos 4 perfis concluída com sucesso!");
+            console.log("\n🎉 Bateria dos 4 perfis finalizada com sucesso!");
           }
 
           run().catch(err => { console.error("Erro na automação:", err); process.exit(1); });
           EOF
 
-      - name: 5. Salvar Artefatos dos 4 Perfis
+      - name: 5. Salvar Screenshots dos 4 Perfis
         uses: actions/upload-artifact@v4
         with:
-          name: teste-4-perfis-mac
+          name: screenshots-4-perfis-mac
           path: |
             *.png
             omnicloak.log
