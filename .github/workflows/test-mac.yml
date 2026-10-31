@@ -1,0 +1,53 @@
+name: Testar OmniCloak no macOS Real
+
+on:
+  workflow_dispatch: # Permite rodar com 1 clique no botão "Run workflow"
+  push:
+    branches: [ main, master ]
+
+jobs:
+  test-mac:
+    runs-on: macos-latest # Máquina Apple Silicon genuína com macOS
+    steps:
+      - name: 1. Verificar Google Chrome nativo do Mac
+        run: |
+          echo "Verificando instalação do Chrome no macOS..."
+          ls -ld "/Applications/Google Chrome.app"
+          "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --version
+
+      - name: 2. Baixar pacote OmniCloak macOS (v1.2.5)
+        run: |
+          echo "Baixando release oficial..."
+          curl -fsSL -o OmniCloak.zip "https://gammacharts.online/gex/downloads/OmniCloak-Mac-AppleSilicon.zip"
+          unzip -q OmniCloak.zip
+          echo "Descompactado com sucesso:"
+          ls -la OmniCloak.app
+
+      - name: 3. Liberar quarentena e checar binário nativo
+        run: |
+          xattr -cr OmniCloak.app
+          file OmniCloak.app/Contents/MacOS/OmniCloak
+          plutil -p OmniCloak.app/Contents/Info.plist | grep -E "CFBundleName|CFBundleIdentifier"
+
+      - name: 4. Executar OmniCloak e capturar tela
+        run: |
+          echo "Iniciando OmniCloak no macOS..."
+          ./OmniCloak.app/Contents/MacOS/OmniCloak &
+          APP_PID=$!
+          echo "App rodando com PID $APP_PID"
+          
+          # Aguarda 10 segundos para o Electron renderizar a interface
+          sleep 10
+          
+          echo "Tirando print da tela do macOS..."
+          screencapture -x screenshot_mac.png
+          
+          echo "Verificando se o processo continua ativo e saudável:"
+          ps aux | grep OmniCloak || true
+
+      - name: 5. Salvar Print da Tela (Artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: print-omnicloak-macos
+          path: screenshot_mac.png
+          retention-days: 1
