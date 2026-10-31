@@ -16,20 +16,23 @@ jobs:
           unzip -q OmniCloak.zip
           echo "Extração concluída."
 
-      - name: 2. Ajustar integridade e assinar para Apple Silicon
+      - name: 2. Restaurar permissões Unix e assinar para Apple Silicon
         run: |
-          # 1. Remove quarentena
+          # 1. Restaura permissão de execução (+x) que o Windows removeu ao zipar
+          chmod -R +x OmniCloak.app
+
+          # 2. Remove quarentena
           xattr -cr OmniCloak.app
 
-          # 2. Remove default_app.asar legada se existir
+          # 3. Remove default_app.asar legada se existir
           rm -f "OmniCloak.app/Contents/Resources/default_app.asar"
 
-          # 3. Remove trava ElectronAsarIntegrity do Info.plist se existir
+          # 4. Remove trava ElectronAsarIntegrity do Info.plist se existir
           /usr/libexec/PlistBuddy -c "Delete :ElectronAsarIntegrity" "OmniCloak.app/Contents/Info.plist" 2>/dev/null || true
 
-          # 4. Assina o pacote localmente para Apple Silicon (ad-hoc)
+          # 5. Assina o pacote localmente para Apple Silicon (ad-hoc)
           codesign --force --deep --sign - "OmniCloak.app"
-          echo "✅ Pacote assinado e validado com sucesso para Apple Silicon!"
+          echo "✅ Pacote restaurado e assinado com sucesso para Apple Silicon!"
 
       - name: 3. Executar OmniCloak com captura de logs
         run: |
@@ -40,8 +43,8 @@ jobs:
           APP_PID=$!
           echo "Processo iniciado com PID: $APP_PID"
 
-          # Aguarda 10 segundos
-          sleep 10
+          # Aguarda 12 segundos para a janela renderizar
+          sleep 12
 
           echo "Status dos processos do OmniCloak:"
           ps aux | grep OmniCloak || true
