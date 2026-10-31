@@ -33,7 +33,7 @@ jobs:
           echo "Processo rodando com PID $APP_PID"
           sleep 4
 
-      - name: 4. Autenticar, Listar Perfis e Clicar em Iniciar
+      - name: 4. Autenticar, Listar Perfis e Iniciar com Espera Estendida
         run: |
           npm install ws
           node << 'EOF'
@@ -78,24 +78,21 @@ jobs:
               });
             }
 
-            console.log("1. Submetendo login (teste2910029200)...");
+            console.log("1. Submetendo login...");
             await exec(`
               document.querySelector('#username').value = 'teste2910029200';
               document.querySelector('#password').value = 'jVz8boBk';
               document.querySelector('#loginForm').requestSubmit();
             `);
 
-            console.log("2. Aguardando perfis carregarem da Nuvem...");
+            console.log("2. Aguardando perfis carregarem da Nuvem (6s)...");
             await new Promise(r => setTimeout(r, 6000));
 
-            const buttonsCount = await exec(`document.querySelectorAll('.btn-launch').length`);
-            console.log(`Perfis encontrados na tabela: ${buttonsCount}`);
-
-            console.log("3. Clicando em 'Iniciar' no primeiro perfil...");
+            console.log("3. Clicando em 'Iniciar' no perfil...");
             await exec(`document.querySelector('.btn-launch').click();`);
 
-            console.log("4. Aguardando 12s para o Google Chrome abrir e navegar...");
-            await new Promise(r => setTimeout(r, 12000));
+            console.log("4. Aguardando 28 segundos para o site, cookies e gráficos carregarem 100% no Chrome...");
+            await new Promise(r => setTimeout(r, 28000));
 
             ws.close();
             console.log("Automação finalizada!");
@@ -104,12 +101,11 @@ jobs:
           run().catch(err => { console.error("Erro na automação:", err); process.exit(1); });
           EOF
 
-      - name: 5. Capturar Tela com Perfil em Execução
+      - name: 5. Capturar Tela com Página Totalmente Carregada
         run: |
-          echo "Status dos processos do Google Chrome e OmniCloak:"
-          ps aux | grep -iE "Chrome|OmniCloak" || true
-
-          echo "Tirando screenshot da tela..."
+          # Aguarda 2 segundos extras para o renderizador gráfico estabilizar
+          sleep 2
+          echo "Tirando screenshot da tela completa..."
           screencapture -x screenshot_mac_perfil.png
 
           echo "Logs do OmniCloak:"
@@ -118,7 +114,7 @@ jobs:
       - name: 6. Salvar Artefatos
         uses: actions/upload-artifact@v4
         with:
-          name: perfil-aberto-mac
+          name: perfil-carregado-mac
           path: |
             screenshot_mac_perfil.png
             omnicloak.log
