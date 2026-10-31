@@ -33,12 +33,13 @@ jobs:
           echo "Processo rodando com PID $APP_PID"
           sleep 4
 
-      - name: 4. Autenticar, Listar Perfis e Iniciar com Espera Estendida
+      - name: 4. Bateria Completa com Espera Estendida (35s por Perfil)
         run: |
           npm install ws
           node << 'EOF'
           const http = require('http');
           const WebSocket = require('ws');
+          const { execSync } = require('child_process');
 
           async function run() {
             let target = null;
@@ -78,44 +79,66 @@ jobs:
               });
             }
 
-            console.log("1. Submetendo login...");
+            console.log("1. Efetuando login...");
             await exec(`
               document.querySelector('#username').value = 'teste2910029200';
               document.querySelector('#password').value = 'jVz8boBk';
               document.querySelector('#loginForm').requestSubmit();
             `);
 
-            console.log("2. Aguardando perfis carregarem da Nuvem (6s)...");
+            console.log("2. Aguardando lista de perfis carregar da VPS (6s)...");
             await new Promise(r => setTimeout(r, 6000));
 
-            console.log("3. Clicando em 'Iniciar' no perfil...");
-            await exec(`document.querySelector('.btn-launch').click();`);
+            const profileCount = await exec(`document.querySelectorAll('#profilesTableBody tr').length`);
+            console.log(`Total de perfis encontrados para o operador: ${profileCount}`);
 
-            console.log("4. Aguardando 28 segundos para o site, cookies e gráficos carregarem 100% no Chrome...");
-            await new Promise(r => setTimeout(r, 28000));
+            for (let i = 0; i < profileCount; i++) {
+              const profName = await exec(`
+                const row = document.querySelectorAll('#profilesTableBody tr')[${i}];
+                row ? row.querySelector('.profile-name').innerText.trim() : 'Perfil_${i}'
+              `);
+              const safeName = profName.replace(/[^a-zA-Z0-9_]/g, '_');
+
+              console.log(`\n======================================================`);
+              console.log(`▶ [${i+1}/${profileCount}] Testando Perfil: ${profName}`);
+              console.log(`======================================================`);
+
+              console.log(`- Clicando em Iniciar na linha ${i+1}...`);
+              await exec(`
+                const row = document.querySelectorAll('#profilesTableBody tr')[${i}];
+                const btn = row ? row.querySelector('.btn-launch') : null;
+                if (btn) btn.click();
+              `);
+
+              console.log(`- Aguardando 35s para o Chrome carregar dados pesados, cookies e gráficos...`);
+              await new Promise(r => setTimeout(r, 35000));
+
+              console.log(`- Capturando tela: ${i+1}_${safeName}.png`);
+              execSync(`screencapture -x "${i+1}_${safeName}.png"`);
+
+              console.log(`- Fechando navegador do perfil...`);
+              await exec(`
+                const stopBtn = document.querySelector('.btn-stop');
+                if (stopBtn) stopBtn.click();
+              `);
+              try { execSync(`killall "Google Chrome" 2>/dev/null || true`); } catch(e) {}
+
+              console.log(`- Aguardando 5s para estabilizar antes do próximo perfil...`);
+              await new Promise(r => setTimeout(r, 5000));
+            }
 
             ws.close();
-            console.log("Automação finalizada!");
+            console.log("\n🎉 Bateria de testes estendida concluída com sucesso!");
           }
 
           run().catch(err => { console.error("Erro na automação:", err); process.exit(1); });
           EOF
 
-      - name: 5. Capturar Tela com Página Totalmente Carregada
-        run: |
-          # Aguarda 2 segundos extras para o renderizador gráfico estabilizar
-          sleep 2
-          echo "Tirando screenshot da tela completa..."
-          screencapture -x screenshot_mac_perfil.png
-
-          echo "Logs do OmniCloak:"
-          cat omnicloak.log || true
-
-      - name: 6. Salvar Artefatos
+      - name: 5. Salvar Artefatos dos 4 Perfis
         uses: actions/upload-artifact@v4
         with:
-          name: perfil-carregado-mac
+          name: teste-4-perfis-mac
           path: |
-            screenshot_mac_perfil.png
+            *.png
             omnicloak.log
           retention-days: 1
