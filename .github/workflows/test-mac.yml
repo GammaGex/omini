@@ -71,7 +71,8 @@ jobs:
                   const m = JSON.parse(data);
                   if (m.id === id) {
                     ws.off('message', onMsg);
-                    resolve(m.result ? m.result.value : null);
+                    const val = (m.result && m.result.result) ? m.result.result.value : (m.result ? m.result.value : null);
+                    resolve(val);
                   }
                 };
                 ws.on('message', onMsg);
@@ -86,49 +87,54 @@ jobs:
               document.querySelector('#loginForm').requestSubmit();
             `);
 
-            console.log("2. Aguardando lista de perfis carregar da VPS (6s)...");
-            await new Promise(r => setTimeout(r, 6000));
+            console.log("2. Aguardando 7s para carregar a tabela de perfis da VPS...");
+            await new Promise(r => setTimeout(r, 7000));
 
-            const profileCount = await exec(`document.querySelectorAll('#profilesTableBody tr').length`);
-            console.log(`Total de perfis encontrados para o operador: ${profileCount}`);
-
-            for (let i = 0; i < profileCount; i++) {
+            // Executa os 4 perfis em sequência
+            const perfis = [0, 1, 2, 3];
+            for (const idx of perfis) {
               const profName = await exec(`
-                const row = document.querySelectorAll('#profilesTableBody tr')[${i}];
-                row ? row.querySelector('.profile-name').innerText.trim() : 'Perfil_${i}'
-              `);
+                const rows = document.querySelectorAll('#profilesTableBody tr');
+                rows[${idx}] ? rows[${idx}].querySelector('.profile-name').innerText.trim() : 'Perfil_${idx+1}'
+              `) || `Perfil_${idx+1}`;
+
               const safeName = profName.replace(/[^a-zA-Z0-9_]/g, '_');
 
               console.log(`\n======================================================`);
-              console.log(`▶ [${i+1}/${profileCount}] Testando Perfil: ${profName}`);
+              console.log(`▶ [${idx+1}/4] INICIANDO: ${profName}`);
               console.log(`======================================================`);
 
-              console.log(`- Clicando em Iniciar na linha ${i+1}...`);
+              console.log(`- Clicando no botão Iniciar da linha ${idx+1}...`);
               await exec(`
-                const row = document.querySelectorAll('#profilesTableBody tr')[${i}];
-                const btn = row ? row.querySelector('.btn-launch') : null;
-                if (btn) btn.click();
+                const rows = document.querySelectorAll('#profilesTableBody tr');
+                if (rows && rows[${idx}]) {
+                  const btn = rows[${idx}].querySelector('.btn-launch');
+                  if (btn) btn.click();
+                }
               `);
 
-              console.log(`- Aguardando 35s para o Chrome carregar dados pesados, cookies e gráficos...`);
+              console.log(`- Aguardando 35 segundos para cookies, túnel e gráficos carregarem...`);
               await new Promise(r => setTimeout(r, 35000));
 
-              console.log(`- Capturando tela: ${i+1}_${safeName}.png`);
-              execSync(`screencapture -x "${i+1}_${safeName}.png"`);
+              console.log(`- Tirando screenshot: perfil_${idx+1}_${safeName}.png`);
+              execSync(`screencapture -x "perfil_${idx+1}_${safeName}.png"`);
 
               console.log(`- Fechando navegador do perfil...`);
               await exec(`
-                const stopBtn = document.querySelector('.btn-stop');
-                if (stopBtn) stopBtn.click();
+                const rows = document.querySelectorAll('#profilesTableBody tr');
+                if (rows && rows[${idx}]) {
+                  const stop = rows[${idx}].querySelector('.btn-stop');
+                  if (stop) stop.click();
+                }
               `);
               try { execSync(`killall "Google Chrome" 2>/dev/null || true`); } catch(e) {}
 
-              console.log(`- Aguardando 5s para estabilizar antes do próximo perfil...`);
-              await new Promise(r => setTimeout(r, 5000));
+              console.log(`- Aguardando 6 segundos antes de abrir o próximo...`);
+              await new Promise(r => setTimeout(r, 6000));
             }
 
             ws.close();
-            console.log("\n🎉 Bateria de testes estendida concluída com sucesso!");
+            console.log("\n🎉 Bateria de testes nos 4 perfis concluída com sucesso!");
           }
 
           run().catch(err => { console.error("Erro na automação:", err); process.exit(1); });
