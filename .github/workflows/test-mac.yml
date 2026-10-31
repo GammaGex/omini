@@ -33,7 +33,7 @@ jobs:
           echo "Processo rodando com PID $APP_PID"
           sleep 4
 
-      - name: 4. Autenticar e Iniciar Perfil QUANTDATA
+      - name: 4. Autenticar e Iniciar Perfil SPOTGAMMA
         run: |
           npm install ws
           node << 'EOF'
@@ -88,31 +88,31 @@ jobs:
             console.log("2. Aguardando 7s para carregar a tabela...");
             await new Promise(r => setTimeout(r, 7000));
 
-            console.log("3. Disparando Perfil QUANTDATA (Linha 3 / Índice 2)...");
+            console.log("3. Disparando Perfil SPOTGAMMA (Linha 4 / Índice 3)...");
             await exec(`
               const btns = document.querySelectorAll('.btn-launch');
-              if (btns && btns[2]) {
-                btns[2].click();
+              if (btns && btns[3]) {
+                btns[3].click();
               }
             `);
 
-            console.log("4. Aguardando 35 segundos para Chrome abrir, injetar cookies e renderizar QuantData no Mac...");
+            console.log("4. Aguardando 35 segundos para Chrome abrir, injetar cookies e renderizar SpotGamma no Mac...");
             await new Promise(r => setTimeout(r, 35000));
 
             ws.close();
-            console.log("Automação do QuantData finalizada!");
+            console.log("Automação do SpotGamma finalizada!");
           }
 
           run().catch(err => { console.error("Erro na automação:", err); process.exit(1); });
           EOF
 
-      - name: 5. Capturar Tela do QuantData
+      - name: 5. Capturar Tela do SpotGamma
         run: |
           echo "Status dos processos:"
           ps aux | grep -iE "Chrome|OmniCloak" || true
 
           echo "Tirando screenshot..."
-          screencapture -x screenshot_mac_quantdata.png
+          screencapture -x screenshot_mac_spotgamma.png
 
           echo "Logs do OmniCloak:"
           cat omnicloak.log || true
@@ -120,8 +120,8 @@ jobs:
       - name: 6. Salvar Artefatos
         uses: actions/upload-artifact@v4
         with:
-          name: resultado-quantdata-mac
+          name: resultado-spotgamma-mac
           path: |
-            screenshot_mac_quantdata.png
+            screenshot_mac_spotgamma.png
             omnicloak.log
           retention-days: 1
