@@ -158,3 +158,4 @@ jobs:
             4_SPOTGAMMA.png
             omnicloak.log
           retention-days: 2
+          
