@@ -1,4 +1,4 @@
-name: Testar OmniCloak no macOS Real (Todos os 4 Perfis)
+name: Testar OmniCloak no macOS Real (Full HD 1080p - 4 Perfis)
 
 on:
   workflow_dispatch:
@@ -9,14 +9,25 @@ jobs:
   test-mac-all-4:
     runs-on: macos-latest
     steps:
-      - name: 1. Baixar pacote OmniCloak macOS Oficial (v1.2.8)
+      - name: 1. Configurar Resolução Full HD (1920x1080) no macOS
+        run: |
+          echo ">>> Instalando utilitário de resolução de tela..."
+          brew install displayplacer
+          SCREEN_ID=$(displayplacer list | grep -E "^Persistent screen id:" | awk '{print $4}' | head -n 1)
+          echo ">>> Screen ID detectado: $SCREEN_ID"
+          displayplacer "id:$SCREEN_ID res:1920x1080 scaling:off" || displayplacer "id:$SCREEN_ID res:1920x1080" || true
+          sleep 2
+          echo ">>> Resolução ativa no macOS:"
+          system_profiler SPDisplaysDataType | grep -i "Resolution" || true
+
+      - name: 2. Baixar pacote OmniCloak macOS Oficial (v1.2.8)
         run: |
           echo "Baixando release oficial..."
           curl -fsSL -o OmniCloak.zip "https://gammacharts.online/gex/downloads/OmniCloak-Mac-AppleSilicon.zip"
           unzip -q OmniCloak.zip
           echo "Extração concluída."
 
-      - name: 2. Restaurar permissões Unix e desativar primeiro uso do Chrome
+      - name: 3. Restaurar permissões Unix e desativar primeiro uso do Chrome
         run: |
           chmod -R +x OmniCloak.app
           xattr -cr OmniCloak.app
@@ -24,12 +35,12 @@ jobs:
           /usr/libexec/PlistBuddy -c "Delete :ElectronAsarIntegrity" "OmniCloak.app/Contents/Info.plist" 2>/dev/null || true
           codesign --force --deep --sign - "OmniCloak.app"
           
-          # Desativa o popup "Welcome to Google Chrome" no macOS
+          # Previne telas de boas-vindas do Chrome no macOS
           mkdir -p "$HOME/Library/Application Support/Google/Chrome"
           touch "$HOME/Library/Application Support/Google/Chrome/First Run"
-          echo "✅ Pacote pronto para execução no Mac."
+          echo "✅ Pacote pronto para execução no Mac em 1080p."
 
-      - name: 3. Iniciar OmniCloak com depurador ativo
+      - name: 4. Iniciar OmniCloak com depurador ativo
         run: |
           echo "Iniciando OmniCloak no macOS..."
           ./OmniCloak.app/Contents/MacOS/OmniCloak --remote-debugging-port=9222 > omnicloak.log 2>&1 &
@@ -37,7 +48,7 @@ jobs:
           echo "Processo rodando com PID $APP_PID"
           sleep 4
 
-      - name: 4. Automação dos 4 Perfis em Sequência por Serial Fixo
+      - name: 5. Automação dos 4 Perfis em Sequência Full HD
         run: |
           npm install ws
           node << 'EOF'
@@ -97,7 +108,7 @@ jobs:
             console.log(">>> Aguardando 7s para carregar a tabela com os 4 perfis...");
             await sleep(7000);
 
-            // Mapeamento exato de cada perfil pelo serial fixo
+            // Perfis oficiais com serial fixo
             const profiles = [
               { serial: 4, name: "1_FINANCIAL_JUICE", waitSec: 35 },
               { serial: 3, name: "2_MENTHORQ", waitSec: 35 },
@@ -110,45 +121,44 @@ jobs:
               console.log(`>>> [INICIANDO] Perfil: ${p.name} (Serial ${p.serial})`);
               console.log(`========================================`);
 
-              // 1. Inicia o perfil via função interna da aplicação
+              // Dispara pelo serial fixo
               await exec(`window.launchProfile(${p.serial})`);
 
-              // 2. Aguarda abertura do Chrome, injeção de cookies e renderização
               console.log(`>>> Aguardando ${p.waitSec}s para carregamento completo...`);
               await sleep(p.waitSec * 1000);
 
-              // 3. Força o Chrome para o Primeiro Plano Total
+              // Traz o Chrome para primeiro plano total
               try {
                 execSync(`osascript -e 'tell application "Google Chrome" to activate'`);
                 await sleep(2000);
               } catch(e) {}
 
-              // 4. Captura a tela com a página logada e ativa
-              console.log(`>>> Capturando print: ${p.name}.png`);
+              // Captura a foto da tela em 1920x1080
+              console.log(`>>> Capturando print Full HD: ${p.name}.png`);
               execSync(`screencapture -x "${p.name}.png"`);
 
-              // 5. Encerra limpo pelo próprio OmniCloak
-              console.log(`>>> Fechando perfil ${p.name} pelo OmniCloak...`);
+              // Encerra de forma limpa pelo OmniCloak
+              console.log(`>>> Encerrando perfil ${p.name}...`);
               await exec(`window.closeProfile(${p.serial})`);
               await sleep(4000);
             }
 
             ws.close();
-            console.log("\n✅ Teste dos 4 perfis finalizado com sucesso!");
+            console.log("\n✅ Teste dos 4 perfis Full HD finalizado!");
           }
 
           run().catch(err => { console.error("Erro na automação:", err); process.exit(1); });
           EOF
 
-      - name: 5. Exibir logs finais
+      - name: 6. Exibir logs finais
         run: |
           echo "=== LOGS OMNICLOAK ==="
           cat omnicloak.log || true
 
-      - name: 6. Salvar Artefatos dos 4 Perfis
+      - name: 7. Salvar Artefatos dos 4 Perfis (Full HD 1080p)
         uses: actions/upload-artifact@v4
         with:
-          name: resultado-todos-4-perfis-mac
+          name: resultado-todos-4-perfis-mac-1080p
           path: |
             1_FINANCIAL_JUICE.png
             2_MENTHORQ.png
