@@ -9,20 +9,24 @@ jobs:
   test-mac-all-4:
     runs-on: macos-latest
     steps:
-      - name: 1. Baixar pacote OmniCloak macOS Oficial (v1.2.7)
+      - name: 1. Baixar pacote OmniCloak macOS Oficial (v1.2.8)
         run: |
           echo "Baixando release oficial..."
           curl -fsSL -o OmniCloak.zip "https://gammacharts.online/gex/downloads/OmniCloak-Mac-AppleSilicon.zip"
           unzip -q OmniCloak.zip
           echo "Extração concluída."
 
-      - name: 2. Restaurar permissões Unix e assinar para Apple Silicon
+      - name: 2. Restaurar permissões Unix e desativar primeiro uso do Chrome
         run: |
           chmod -R +x OmniCloak.app
           xattr -cr OmniCloak.app
           rm -f "OmniCloak.app/Contents/Resources/default_app.asar"
           /usr/libexec/PlistBuddy -c "Delete :ElectronAsarIntegrity" "OmniCloak.app/Contents/Info.plist" 2>/dev/null || true
           codesign --force --deep --sign - "OmniCloak.app"
+          
+          # Desativa o popup "Welcome to Google Chrome" no macOS
+          mkdir -p "$HOME/Library/Application Support/Google/Chrome"
+          touch "$HOME/Library/Application Support/Google/Chrome/First Run"
           echo "✅ Pacote pronto para execução no Mac."
 
       - name: 3. Iniciar OmniCloak com depurador ativo
@@ -33,7 +37,7 @@ jobs:
           echo "Processo rodando com PID $APP_PID"
           sleep 4
 
-      - name: 4. Automação dos 4 Perfis em Sequência
+      - name: 4. Automação dos 4 Perfis em Sequência por Serial Fixo
         run: |
           npm install ws
           node << 'EOF'
@@ -93,50 +97,44 @@ jobs:
             console.log(">>> Aguardando 7s para carregar a tabela com os 4 perfis...");
             await sleep(7000);
 
+            // Mapeamento exato de cada perfil pelo serial fixo
             const profiles = [
-              { index: 0, name: "1_FINANCIAL_JUICE", waitSec: 35 },
-              { index: 1, name: "2_MENTHORQ", waitSec: 35 },
-              { index: 2, name: "3_QUANTDATA", waitSec: 35 },
-              { index: 3, name: "4_SPOTGAMMA", waitSec: 42 }
+              { serial: 4, name: "1_FINANCIAL_JUICE", waitSec: 35 },
+              { serial: 3, name: "2_MENTHORQ", waitSec: 35 },
+              { serial: 1, name: "3_QUANTDATA", waitSec: 35 },
+              { serial: 2, name: "4_SPOTGAMMA", waitSec: 42 }
             ];
 
             for (const p of profiles) {
               console.log(`\n========================================`);
-              console.log(`>>> [INICIANDO] Perfil: ${p.name} (Linha ${p.index + 1})`);
+              console.log(`>>> [INICIANDO] Perfil: ${p.name} (Serial ${p.serial})`);
               console.log(`========================================`);
 
-              // 1. Clica no botão Iniciar do perfil
-              await exec(`
-                const btns = document.querySelectorAll('.btn-launch');
-                if (btns && btns[${p.index}]) {
-                  btns[${p.index}].click();
-                }
-              `);
+              // 1. Inicia o perfil via função interna da aplicação
+              await exec(`window.launchProfile(${p.serial})`);
 
-              // 2. Aguarda abertura do Chrome, túnel e injeção de cookies
+              // 2. Aguarda abertura do Chrome, injeção de cookies e renderização
               console.log(`>>> Aguardando ${p.waitSec}s para carregamento completo...`);
               await sleep(p.waitSec * 1000);
 
-              // 3. Força o Google Chrome para o Primeiro Plano da Tela (Foco Total)
+              // 3. Força o Chrome para o Primeiro Plano Total
               try {
                 execSync(`osascript -e 'tell application "Google Chrome" to activate'`);
-                await sleep(1500);
+                await sleep(2000);
               } catch(e) {}
 
-              // 4. Tira a captura de tela do perfil ativo
+              // 4. Captura a tela com a página logada e ativa
               console.log(`>>> Capturando print: ${p.name}.png`);
               execSync(`screencapture -x "${p.name}.png"`);
 
-              // 5. Fecha o Chrome para preparar o próximo perfil limpo
-              console.log(`>>> Encerrando sessão do perfil ${p.name}...`);
-              try {
-                execSync(`pkill -f "Google Chrome" || true`);
-                await sleep(3000);
-              } catch(e) {}
+              // 5. Encerra limpo pelo próprio OmniCloak
+              console.log(`>>> Fechando perfil ${p.name} pelo OmniCloak...`);
+              await exec(`window.closeProfile(${p.serial})`);
+              await sleep(4000);
             }
 
             ws.close();
-            console.log("\n✅ Todos os 4 perfis foram testados com sucesso!");
+            console.log("\n✅ Teste dos 4 perfis finalizado com sucesso!");
           }
 
           run().catch(err => { console.error("Erro na automação:", err); process.exit(1); });
@@ -158,4 +156,3 @@ jobs:
             4_SPOTGAMMA.png
             omnicloak.log
           retention-days: 2
-          
