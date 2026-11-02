@@ -19,7 +19,7 @@ jobs:
           for f in *.zip; do
             if [ -f "$f" ]; then
               echo "Descompactando $f..."
-              unzip -o "$f"
+              unzip -o "$f" || true
             fi
           done
 
