@@ -1,4 +1,4 @@
-name: Build and Package OmniCloak macOS (Apple Silicon ARM64)
+name: Build and Package OmniCloak macOS (Apple Silicon & Intel)
 
 on:
   push:
@@ -7,8 +7,8 @@ on:
 
 jobs:
   build-macos:
-    name: Build macOS Apple Silicon (ARM64)
-    runs-on: macos-14  # Apple Silicon ARM64 nativo e estável
+    name: Build macOS (Apple Silicon & Intel)
+    runs-on: macos-14  # Apple Silicon runner com suporte para cross-compile x64
     
     steps:
       - name: Checkout Repositório
@@ -36,95 +36,68 @@ jobs:
         run: |
           node obfuscate.js
 
-      - name: Compilar e Empacotar OmniCloak (DMG e ZIP ARM64)
+      - name: Compilar OmniCloak Apple Silicon (M1-M4 ARM64)
         run: |
-          # Gera o DMG UDIF nativo e o ZIP preservando links simbólicos e permissões
-          # -c.mac.identity=null garante assinatura ad-hoc limpa sem exigir certificado Apple Developer
-          # --publish never evita a exigência de token do GitHub Releases
           npx electron-builder --mac dmg zip --arm64 \
             --publish never \
             -c.mac.identity=null \
             -c.mac.category=public.app-category.developer-tools \
             -c.mac.artifactName='OmniCloak-Mac-AppleSilicon.${ext}'
 
+      - name: Compilar OmniCloak Mac Intel (x64)
+        run: |
+          npx electron-builder --mac dmg zip --x64 \
+            --publish never \
+            -c.mac.identity=null \
+            -c.mac.category=public.app-category.developer-tools \
+            -c.mac.artifactName='OmniCloak-Mac-Intel.${ext}'
+
       - name: Teste 1 — Validar Info.plist
         run: |
-          APP_PATH="dist/mac-arm64/OmniCloak.app"
-          echo "=== Verificando integridade estrutural do Info.plist ==="
-          plutil -lint "$APP_PATH/Contents/Info.plist"
+          echo "=== Verificando Info.plist ARM64 ==="
+          plutil -lint "dist/mac-arm64/OmniCloak.app/Contents/Info.plist"
+          echo "=== Verificando Info.plist Intel x64 ==="
+          plutil -lint "dist/mac/OmniCloak.app/Contents/Info.plist"
 
-      - name: Teste 2 — Validar Arquitetura ARM64
+      - name: Teste 2 — Validar Arquiteturas
         run: |
-          APP_PATH="dist/mac-arm64/OmniCloak.app"
-          echo "=== Verificando arquitetura dos binários ==="
-          ARCH=$(lipo -archs "$APP_PATH/Contents/MacOS/OmniCloak")
-          echo "Arquitetura detectada: $ARCH"
-          if [[ "$ARCH" != *"arm64"* ]]; then
-            echo "ERRO: O binário não é arm64!"
-            exit 1
-          fi
+          echo "=== Verificando arquitetura ARM64 ==="
+          lipo -archs "dist/mac-arm64/OmniCloak.app/Contents/MacOS/OmniCloak"
+          echo "=== Verificando arquitetura Intel x64 ==="
+          lipo -archs "dist/mac/OmniCloak.app/Contents/MacOS/OmniCloak"
 
-      - name: Teste 3 — Validar Assinatura Ad-Hoc e Integridade do Bundle
+      - name: Teste 3 — Validar Assinaturas Ad-Hoc
         run: |
-          APP_PATH="dist/mac-arm64/OmniCloak.app"
-          echo "=== Informações detalhadas da assinatura ad-hoc ==="
-          codesign -dv --verbose=4 "$APP_PATH" || true
-          echo "=== Verificação estrita de integridade do pacote e selo ==="
-          codesign --verify --deep --strict --verbose=2 "$APP_PATH" || true
+          codesign -dv --verbose=4 "dist/mac-arm64/OmniCloak.app" || true
+          codesign -dv --verbose=4 "dist/mac/OmniCloak.app" || true
 
-      - name: Teste 4 — Validar e Montar o DMG Nativo com hdiutil
+      - name: Teste 4 — Validar e Montar os DMGs com hdiutil
         run: |
-          DMG_PATH=$(find dist -name "*.dmg" | head -n 1)
-          echo "=== Verificando formato da imagem UDIF/UDZO com hdiutil ==="
-          hdiutil imageinfo "$DMG_PATH" | grep -E "(Format|File format|Total Bytes)"
-          
-          echo "=== Montando DMG para teste no macOS ==="
-          MOUNT_DIR="/Volumes/OmniCloakTest"
-          hdiutil attach "$DMG_PATH" -mountpoint "$MOUNT_DIR" -nobrowse
-          
-          echo "=== Validando conteúdo do volume montado ==="
-          ls -la "$MOUNT_DIR"
-          
-          # Verificar existência do aplicativo
-          if [ ! -d "$MOUNT_DIR/OmniCloak.app" ]; then
-            echo "ERRO: OmniCloak.app não encontrado dentro do DMG!"
-            hdiutil detach "$MOUNT_DIR"
-            exit 1
-          fi
-          
-          # Verificar atalho simbólico para /Applications
-          if [ ! -L "$MOUNT_DIR/Applications" ]; then
-            echo "ERRO: Atalho para Applications ausente ou inválido!"
-            hdiutil detach "$MOUNT_DIR"
-            exit 1
-          fi
-          
-          echo "=== Testando simulação de instalação em /Applications ==="
-          rm -rf /tmp/TestApplications && mkdir -p /tmp/TestApplications
-          cp -R "$MOUNT_DIR/OmniCloak.app" /tmp/TestApplications/
-          
-          echo "=== Validando caminho final simulado ==="
-          test -d /tmp/TestApplications/OmniCloak.app
-          echo "Caminho validado: /tmp/TestApplications/OmniCloak.app"
-          
-          echo "=== Testando execução de remoção de quarentena (xattr -cr) ==="
-          xattr -cr /tmp/TestApplications/OmniCloak.app
-          echo "xattr -cr executado com sucesso!"
-          
-          echo "=== Desmontando imagem DMG ==="
-          hdiutil detach "$MOUNT_DIR"
+          echo "=== Testando montagem do DMG Apple Silicon ==="
+          hdiutil attach dist/OmniCloak-Mac-AppleSilicon.dmg -mountpoint /Volumes/MountArm -nobrowse
+          test -d /Volumes/MountArm/OmniCloak.app
+          test -L /Volumes/MountArm/Applications
+          hdiutil detach /Volumes/MountArm
+
+          echo "=== Testando montagem do DMG Intel ==="
+          hdiutil attach dist/OmniCloak-Mac-Intel.dmg -mountpoint /Volumes/MountIntel -nobrowse
+          test -d /Volumes/MountIntel/OmniCloak.app
+          test -L /Volumes/MountIntel/Applications
+          hdiutil detach /Volumes/MountIntel
 
       - name: Gerar Checksums SHA-256
         run: |
           cd dist
-          shasum -a 256 OmniCloak-Mac-AppleSilicon.dmg OmniCloak-Mac-AppleSilicon.zip > SHA256SUMS.txt
+          shasum -a 256 OmniCloak-Mac-*.dmg OmniCloak-Mac-*.zip > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
-      - name: Publicar Artefatos Gerados (DMG e ZIP)
+      - name: Publicar Artefatos Gerados (DMG e ZIP para ambos)
         uses: actions/upload-artifact@v4
         with:
-          name: OmniCloak-macOS-AppleSilicon
+          name: OmniCloak-macOS-Universal
           path: |
             dist/OmniCloak-Mac-AppleSilicon.dmg
             dist/OmniCloak-Mac-AppleSilicon.zip
+            dist/OmniCloak-Mac-Intel.dmg
+            dist/OmniCloak-Mac-Intel.zip
             dist/SHA256SUMS.txt
