@@ -8,7 +8,7 @@ on:
 jobs:
   build-macos:
     name: Build macOS Apple Silicon (ARM64)
-    runs-on: macos-14  # Apple Silicon ARM64 com alta disponibilidade no GitHub
+    runs-on: macos-14  # Apple Silicon ARM64 nativo e estável
     
     steps:
       - name: Checkout Repositório
@@ -40,7 +40,9 @@ jobs:
         run: |
           # Gera o DMG UDIF nativo e o ZIP preservando links simbólicos e permissões
           # -c.mac.identity=null garante assinatura ad-hoc limpa sem exigir certificado Apple Developer
+          # --publish never evita a exigência de token do GitHub Releases
           npx electron-builder --mac dmg zip --arm64 \
+            --publish never \
             -c.mac.identity=null \
             -c.mac.category=public.app-category.developer-tools \
             -c.mac.artifactName='OmniCloak-Mac-AppleSilicon.${ext}'
