@@ -1,168 +1,120 @@
-name: Testar OmniCloak no macOS Real (Full HD 1080p - 4 Perfis)
+name: Build and Package OmniCloak macOS (Apple Silicon ARM64)
 
 on:
-  workflow_dispatch:
   push:
     branches: [ main, master ]
+  workflow_dispatch:
 
 jobs:
-  test-mac-all-4:
-    runs-on: macos-latest
+  build-macos:
+    name: Build macOS Apple Silicon (ARM64)
+    runs-on: macos-15  # Apple Silicon M-series nativo do GitHub Actions
+    
     steps:
-      - name: 1. Configurar Resolução Full HD (1920x1080) no macOS
-        run: |
-          echo ">>> Instalando utilitário de resolução de tela..."
-          brew install displayplacer
-          SCREEN_ID=$(displayplacer list | grep -E "^Persistent screen id:" | awk '{print $4}' | head -n 1)
-          echo ">>> Screen ID detectado: $SCREEN_ID"
-          displayplacer "id:$SCREEN_ID res:1920x1080 scaling:off" || displayplacer "id:$SCREEN_ID res:1920x1080" || true
-          sleep 2
-          echo ">>> Resolução ativa no macOS:"
-          system_profiler SPDisplaysDataType | grep -i "Resolution" || true
+      - name: Checkout Repositório
+        uses: actions/checkout@v4
 
-      - name: 2. Baixar pacote OmniCloak macOS Oficial (v1.2.8)
-        run: |
-          echo "Baixando release oficial..."
-          curl -fsSL -o OmniCloak.zip "https://gammacharts.online/gex/downloads/OmniCloak-Mac-AppleSilicon.zip"
-          unzip -q OmniCloak.zip
-          echo "Extração concluída."
+      - name: Configurar Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
 
-      - name: 3. Restaurar permissões Unix e desativar primeiro uso do Chrome
+      - name: Instalar Dependências
         run: |
-          chmod -R +x OmniCloak.app
-          xattr -cr OmniCloak.app
-          rm -f "OmniCloak.app/Contents/Resources/default_app.asar"
-          /usr/libexec/PlistBuddy -c "Delete :ElectronAsarIntegrity" "OmniCloak.app/Contents/Info.plist" 2>/dev/null || true
-          codesign --force --deep --sign - "OmniCloak.app"
+          npm install
+
+      - name: Ofuscar Código de Produção
+        run: |
+          node obfuscate.js
+
+      - name: Compilar e Empacotar OmniCloak (DMG e ZIP ARM64)
+        run: |
+          # Gera o DMG UDIF/UDZO nativo e o ZIP preservando links simbólicos e permissões
+          # -c.mac.identity=null garante assinatura ad-hoc limpa sem exigir certificado Apple Developer
+          npx electron-builder --mac dmg zip --arm64 \
+            -c.mac.identity=null \
+            -c.mac.category=public.app-category.developer-tools \
+            -c.mac.artifactName="OmniCloak-Mac-AppleSilicon.${ext}"
+
+      - name: Teste 1 — Validar Info.plist
+        run: |
+          APP_PATH="dist/mac-arm64/OmniCloak.app"
+          echo "=== Verificando integridade estrutural do Info.plist ==="
+          plutil -lint "$APP_PATH/Contents/Info.plist"
+
+      - name: Teste 2 — Validar Arquitetura ARM64
+        run: |
+          APP_PATH="dist/mac-arm64/OmniCloak.app"
+          echo "=== Verificando arquitetura dos binários ==="
+          ARCH=$(lipo -archs "$APP_PATH/Contents/MacOS/OmniCloak")
+          echo "Arquitetura detectada: $ARCH"
+          if [[ "$ARCH" != *"arm64"* ]]; then
+            echo "ERRO: O binário não é arm64!"
+            exit 1
+          fi
+
+      - name: Teste 3 — Validar Assinatura Ad-Hoc e Integridade do Bundle
+        run: |
+          APP_PATH="dist/mac-arm64/OmniCloak.app"
+          echo "=== Informações detalhadas da assinatura ad-hoc ==="
+          codesign -dv --verbose=4 "$APP_PATH"
+          echo "=== Verificação estrita de integridade do pacote e selo ==="
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+
+      - name: Teste 4 — Validar e Montar o DMG Nativo com hdiutil
+        run: |
+          DMG_PATH=$(find dist -name "*.dmg" | head -n 1)
+          echo "=== Verificando formato da imagem UDIF/UDZO com hdiutil ==="
+          hdiutil imageinfo "$DMG_PATH" | grep -E "(Format|File format|Total Bytes)"
           
-          # Previne telas de boas-vindas do Chrome no macOS
-          mkdir -p "$HOME/Library/Application Support/Google/Chrome"
-          touch "$HOME/Library/Application Support/Google/Chrome/First Run"
-          echo "✅ Pacote pronto para execução no Mac em 1080p."
+          echo "=== Montando DMG para teste no macOS ==="
+          MOUNT_DIR="/Volumes/OmniCloakTest"
+          hdiutil attach "$DMG_PATH" -mountpoint "$MOUNT_DIR" -nobrowse
+          
+          echo "=== Validando conteúdo do volume montado ==="
+          ls -la "$MOUNT_DIR"
+          
+          # Verificar existência do aplicativo
+          if [ ! -d "$MOUNT_DIR/OmniCloak.app" ]; then
+            echo "ERRO: OmniCloak.app não encontrado dentro do DMG!"
+            hdiutil detach "$MOUNT_DIR"
+            exit 1
+          fi
+          
+          # Verificar atalho simbólico para /Applications
+          if [ ! -L "$MOUNT_DIR/Applications" ]; then
+            echo "ERRO: Atalho para Applications ausente ou inválido!"
+            hdiutil detach "$MOUNT_DIR"
+            exit 1
+          fi
+          
+          echo "=== Testando simulação de instalação em /Applications ==="
+          rm -rf /tmp/TestApplications && mkdir -p /tmp/TestApplications
+          cp -R "$MOUNT_DIR/OmniCloak.app" /tmp/TestApplications/
+          
+          echo "=== Validando caminho final simulado ==="
+          test -d /tmp/TestApplications/OmniCloak.app
+          echo "Caminho validado: /tmp/TestApplications/OmniCloak.app"
+          
+          echo "=== Testando execução de remoção de quarentena (xattr -cr) ==="
+          xattr -cr /tmp/TestApplications/OmniCloak.app
+          echo "xattr -cr executado com sucesso!"
+          
+          echo "=== Desmontando imagem DMG ==="
+          hdiutil detach "$MOUNT_DIR"
 
-      - name: 4. Iniciar OmniCloak com depurador ativo
+      - name: Gerar Checksums SHA-256
         run: |
-          echo "Iniciando OmniCloak no macOS..."
-          ./OmniCloak.app/Contents/MacOS/OmniCloak --remote-debugging-port=9222 > omnicloak.log 2>&1 &
-          APP_PID=$!
-          echo "Processo rodando com PID $APP_PID"
-          sleep 4
+          cd dist
+          shasum -a 256 OmniCloak-Mac-AppleSilicon.dmg OmniCloak-Mac-AppleSilicon.zip > SHA256SUMS.txt
+          cat SHA256SUMS.txt
 
-      - name: 5. Automação dos 4 Perfis em Sequência Full HD
-        run: |
-          npm install ws
-          node << 'EOF'
-          const http = require('http');
-          const WebSocket = require('ws');
-          const { execSync } = require('child_process');
-
-          async function sleep(ms) {
-            return new Promise(r => setTimeout(r, ms));
-          }
-
-          async function run() {
-            let target = null;
-            for (let i = 0; i < 20; i++) {
-              await sleep(500);
-              try {
-                const res = await new Promise((resolve, reject) => {
-                  http.get('http://127.0.0.1:9222/json', (res) => {
-                    let d = '';
-                    res.on('data', c => d += c);
-                    res.on('end', () => resolve(JSON.parse(d)));
-                  }).on('error', reject);
-                });
-                target = res.find(t => t.type === 'page');
-                if (target && target.webSocketDebuggerUrl) break;
-              } catch(e) {}
-            }
-
-            if (!target) throw new Error("Janela do OmniCloak não encontrada na porta 9222");
-            console.log("Conectado à interface do OmniCloak!");
-
-            const ws = new WebSocket(target.webSocketDebuggerUrl);
-            await new Promise(r => ws.on('open', r));
-
-            function exec(code) {
-              return new Promise(resolve => {
-                const id = Math.floor(Math.random() * 100000);
-                const onMsg = (data) => {
-                  const m = JSON.parse(data);
-                  if (m.id === id) {
-                    ws.off('message', onMsg);
-                    resolve(m.result ? m.result.value : null);
-                  }
-                };
-                ws.on('message', onMsg);
-                ws.send(JSON.stringify({ id, method: "Runtime.evaluate", params: { expression: code } }));
-              });
-            }
-
-            console.log(">>> Efetuando login no OmniCloak...");
-            await exec(`
-              document.querySelector('#username').value = 'teste2910029200';
-              document.querySelector('#password').value = 'jVz8boBk';
-              document.querySelector('#loginForm').requestSubmit();
-            `);
-
-            console.log(">>> Aguardando 7s para carregar a tabela com os 4 perfis...");
-            await sleep(7000);
-
-            // Perfis oficiais com serial fixo
-            const profiles = [
-              { serial: 4, name: "1_FINANCIAL_JUICE", waitSec: 35 },
-              { serial: 3, name: "2_MENTHORQ", waitSec: 35 },
-              { serial: 1, name: "3_QUANTDATA", waitSec: 35 },
-              { serial: 2, name: "4_SPOTGAMMA", waitSec: 42 }
-            ];
-
-            for (const p of profiles) {
-              console.log(`\n========================================`);
-              console.log(`>>> [INICIANDO] Perfil: ${p.name} (Serial ${p.serial})`);
-              console.log(`========================================`);
-
-              // Dispara pelo serial fixo
-              await exec(`window.launchProfile(${p.serial})`);
-
-              console.log(`>>> Aguardando ${p.waitSec}s para carregamento completo...`);
-              await sleep(p.waitSec * 1000);
-
-              // Traz o Chrome para primeiro plano total
-              try {
-                execSync(`osascript -e 'tell application "Google Chrome" to activate'`);
-                await sleep(2000);
-              } catch(e) {}
-
-              // Captura a foto da tela em 1920x1080
-              console.log(`>>> Capturando print Full HD: ${p.name}.png`);
-              execSync(`screencapture -x "${p.name}.png"`);
-
-              // Encerra de forma limpa pelo OmniCloak
-              console.log(`>>> Encerrando perfil ${p.name}...`);
-              await exec(`window.closeProfile(${p.serial})`);
-              await sleep(4000);
-            }
-
-            ws.close();
-            console.log("\n✅ Teste dos 4 perfis Full HD finalizado!");
-          }
-
-          run().catch(err => { console.error("Erro na automação:", err); process.exit(1); });
-          EOF
-
-      - name: 6. Exibir logs finais
-        run: |
-          echo "=== LOGS OMNICLOAK ==="
-          cat omnicloak.log || true
-
-      - name: 7. Salvar Artefatos dos 4 Perfis (Full HD 1080p)
+      - name: Publicar Artefatos Gerados (DMG e ZIP)
         uses: actions/upload-artifact@v4
         with:
-          name: resultado-todos-4-perfis-mac-1080p
+          name: OmniCloak-macOS-AppleSilicon
           path: |
-            1_FINANCIAL_JUICE.png
-            2_MENTHORQ.png
-            3_QUANTDATA.png
-            4_SPOTGAMMA.png
-            omnicloak.log
-          retention-days: 2
+            dist/OmniCloak-Mac-AppleSilicon.dmg
+            dist/OmniCloak-Mac-AppleSilicon.zip
+            dist/SHA256SUMS.txt
