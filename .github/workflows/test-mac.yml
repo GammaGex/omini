@@ -117,3 +117,4 @@ jobs:
             dist/OmniCloak-Mac-AppleSilicon.dmg
             dist/OmniCloak-Mac-AppleSilicon.zip
             dist/SHA256SUMS.txt
+            
