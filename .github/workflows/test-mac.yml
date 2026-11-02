@@ -14,6 +14,15 @@ jobs:
       - name: Checkout Repositório
         uses: actions/checkout@v4
 
+      - name: Descompactar arquivos do projeto se enviados em ZIP
+        run: |
+          for f in *.zip; do
+            if [ -f "$f" ]; then
+              echo "Descompactando $f..."
+              unzip -o "$f"
+            fi
+          done
+
       - name: Configurar Node.js 20
         uses: actions/setup-node@v4
         with:
@@ -117,4 +126,3 @@ jobs:
             dist/OmniCloak-Mac-AppleSilicon.dmg
             dist/OmniCloak-Mac-AppleSilicon.zip
             dist/SHA256SUMS.txt
-            
